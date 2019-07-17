@@ -1,152 +1,65 @@
-//require our websocket library 
-var WebSocketServer = require('ws').Server;
+var app = require('http').createServer();
+var io = require('socket.io')(app);
+var _ = require('lodash');
+
+app.listen(8080);
+    var users = [];
+io.on('connect', function (socket) {
+    socketId = socket.id;//id de usuario
+//    
+//    
+    //evento que se dispara cuando un usuario de loguea
+    socket.on('login',function(data){
+            var socketId = socket.id;//id de usuario
+            var user = new Object();//se crea el objeto usuario
+            user.username = data.username;
+            user.room = data.room;
+            user.status = "connect";
+            user.socketId = socketId;
+            users.push(user);//se agrega a la lista de usuarios
+            socket.join(user.room);//se agrega el usuario a la sala indicada
+    });
+    //evento que se ejecuta cuando se desconecta un usuario
+    socket.on('disconnect', function(){
+        //borra el usuario desconectado de users
+        _.remove(users, {socketId:socket.id});
+    });
+    
+    //emite la invitacion a todos los monitores sin distinguir su status
+    socket.on('invitation',function(data){
+        console.log('invitation',data);
+        user =_.find(users,data);
+        io.to('monitor').emit('calibration',user);//invitaciona  cada monitor
+    });
  
-//creating a websocket server at port 6503 
-var wss = new WebSocketServer({port: 6503}); 
-
-//all connected to the server users 
-var users = {};
-  
-//when a user connects to our sever 
-wss.on('connection', function(connection) {
-  
-   console.log("User connected");
-	
-   //when server gets a message from a connected user
-   connection.on('message', function(message) { 
-      console.log("onMessage" + message);	
-      var data; 
-      //accepting only JSON messages 
-      try {
-         data = JSON.parse(message); 
-      } catch (e) { 
-         console.log("Invalid JSON"); 
-         data = {}; 
-      } 
-		
-      //switching type of the user message 
-      switch (data.type) { 
-         //when a user tries to login 
-			
-         case "login": 
-            console.log("User logged", data.name); 
-				
-            //if anyone is logged in with this username then refuse 
-            if(users[data.name]) { 
-               sendTo(connection, { 
-                  type: "login", 
-                  success: false 
-               }); 
-            } else { 
-               //save user connection on the server 
-               users[data.name] = connection; 
-               connection.name = data.name; 
-					
-               sendTo(connection, { 
-                  type: "login", 
-                  success: true 
-               }); 
-            } 
-				
-            break; 
-				
-         case "offer": 
-            //for ex. UserA wants to call UserB 
-            console.log("Sending offer to: ", data.name); 
-				
-            //if UserB exists then send him offer details 
-            var conn = users[data.name];
-				
-            if(conn !== null) { 
-               //setting that UserA connected with UserB 
-               connection.otherName = data.name; 
-					
-               sendTo(conn, { 
-                  type: "offer", 
-                  offer: data.offer, 
-                  name: connection.name 
-               }); 
-            } 
-				
-            break;  
-				
-         case "answer": 
-            console.log("Sending answer to: ", data.name); 
-            //for ex. UserB answers UserA 
-            var conn = users[data.name]; 
-				
-            if(conn !== null) { 
-               connection.otherName = data.name; 
-               sendTo(conn, { 
-                  type: "answer", 
-                  answer: data.answer 
-               }); 
-            } 
-				
-            break;  
-				
-         case "candidate": 
-            console.log("Sending candidate to:",data.name); 
-            var conn = users[data.name];  
-				
-            if(conn !== null) { 
-               sendTo(conn, { 
-                  type: "candidate", 
-                  candidate: data.candidate 
-               });
-            } 
-				
-            break;  
-				
-         case "leave": 
-            console.log("Disconnecting from", data.name); 
-            var conn = users[data.name]; 
-            conn.otherName = null; 
-				
-            //notify the other user so he can disconnect his peer connection 
-            if(conn !== null) { 
-               sendTo(conn, { 
-                  type: "leave" 
-               }); 
-            }  
-				
-            break;  
-				
-         default: 
-            sendTo(connection, { 
-               type: "error", 
-               message: "Command not found: " + data.type 
-            }); 
-				
-            break; 
-      }  
-   });  
-	
-   //when user exits, for example closes a browser window 
-   //this may help if we are still in "offer","answer" or "candidate" state 
-   connection.on("close", function() { 
-	
-      if(connection.name) { 
-      delete users[connection.name]; 
-		
-         if(connection.otherName) { 
-            console.log("Disconnecting from ", connection.otherName);
-            var conn = users[connection.otherName]; 
-            conn.otherName = null;  
-				
-            if(conn !== null) { 
-               sendTo(conn, { 
-                  type: "leave" 
-               });
-            }  
-         } 
-      } 
-   });  
-	
-//   connection.send("Hello world"); 
-	
-});  
-
-function sendTo(connection, message) { 
-   connection.send(JSON.stringify(message)); 
-}
+    //emite cuando un usuario acepta la invitacion
+    socket.on('accepted',function(data){
+        console.log('accepted',data);
+        connectUser =_.find(users,{'username':data.connectUser});
+        //emite a un usuario en especifico
+        io.to(`${connectUser.socketId}`).emit('userAccepted', data.user);
+    });
+    
+    
+    socket.on('rejectecd',function(data){
+        //revisa si quedan usuarios por aceptar la invitacion
+    });
+    
+    socket.on('offer',function(data){
+        console.log("data",data);
+        connectUser =_.find(users,{'username':data.connectUser});
+        io.to(`${connectUser.socketId}`).emit('offer', data);
+    });
+    
+    socket.on('answer',function(data){
+        connectUser =_.find(users,{'username':data.connectUser});
+        io.to(`${connectUser.socketId}`).emit('answer', data);
+    });
+    
+    socket.on('candidate',function(data){
+        console.log('candidate',data);
+        connectUser =_.find(users,{'username':data.connectUser});
+        io.to(`${connectUser.socketId}`).emit('candidate', data);
+    });
+    
+});
